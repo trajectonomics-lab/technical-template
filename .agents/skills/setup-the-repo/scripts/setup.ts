@@ -20,6 +20,10 @@ interface SetupAnswers {
 	enablePublish: boolean
 }
 
+function isValidPackageName(name: string): boolean {
+	return /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/.test(name)
+}
+
 async function getRootDir(): Promise<string> {
 	try {
 		const out = await $`git rev-parse --show-toplevel`.quiet().text()
@@ -70,7 +74,11 @@ async function collectAnswersInteractive(): Promise<SetupAnswers> {
 	const repoName = await promptUser(rl, "1. GitHub Repository Name (org/repo)", defaultRepo)
 
 	const defaultPkgName = `@trajectonomics/${repoName.split("/").pop() || "project"}`
-	const packageName = await promptUser(rl, "2. Package Name (for package.json)", defaultPkgName)
+	let packageName = await promptUser(rl, "2. Package Name (for package.json)", defaultPkgName)
+	while (!isValidPackageName(packageName)) {
+		console.log("   ⚠️  Invalid npm package name format (must be lowercase alphanumeric/hyphens).")
+		packageName = await promptUser(rl, "   Enter valid package name", defaultPkgName)
+	}
 
 	const description = await promptUser(
 		rl,
@@ -116,6 +124,214 @@ async function collectAnswersInteractive(): Promise<SetupAnswers> {
 	}
 }
 
+function generateStarterCode(archetype: SetupAnswers["archetype"], packageName: string): { src: string; test: string } {
+	if (archetype === "core") {
+		const src = `/**
+ * Pure domain model for ${packageName}.
+ * Invariant: All domain objects are frozen, deterministic, and free of I/O.
+ */
+
+export enum DomainErrorCode {
+	INVALID_ID = "INVALID_ID",
+	INVALID_STATE = "INVALID_STATE",
+}
+
+export class DomainError extends Error {
+	readonly code: DomainErrorCode
+
+	constructor(code: DomainErrorCode, message: string) {
+		super(\`[\${code}]: \${message}\`)
+		this.name = "DomainError"
+		this.code = code
+	}
+}
+
+export interface EntityProps {
+	readonly id: string
+	readonly label: string
+}
+
+export interface Entity {
+	readonly id: string
+	readonly label: string
+}
+
+export function createEntity(props: EntityProps): Entity {
+	if (!props.id || props.id.trim().length === 0) {
+		throw new DomainError(DomainErrorCode.INVALID_ID, "Entity ID must be non-empty.")
+	}
+	return Object.freeze({
+		id: props.id.trim(),
+		label: props.label.trim(),
+	})
+}
+`
+		const test = `import { describe, expect, it } from "bun:test"
+import { createEntity, DomainError, DomainErrorCode } from "./index"
+
+describe("createEntity", () => {
+	it("creates a frozen entity with valid properties", () => {
+		const entity = createEntity({ id: "ent-1", label: "Example" })
+		expect(entity.id).toBe("ent-1")
+		expect(entity.label).toBe("Example")
+		expect(Object.isFrozen(entity)).toBe(true)
+	})
+
+	it("rejects an entity with empty id", () => {
+		expect(() => createEntity({ id: "", label: "Test" })).toThrow(DomainError)
+		try {
+			createEntity({ id: "   ", label: "Test" })
+		} catch (err) {
+			expect(err).toBeInstanceOf(DomainError)
+			expect((err as DomainError).code).toBe(DomainErrorCode.INVALID_ID)
+		}
+	})
+})
+`
+		return { src, test }
+	}
+
+	if (archetype === "cli") {
+		const binName = packageName.split("/").pop() || "cli"
+		const src = `#!/usr/bin/env node
+/**
+ * CLI entrypoint for ${packageName}.
+ */
+
+export interface ParsedCliArgs {
+	readonly help: boolean
+	readonly version: boolean
+	readonly command: string | undefined
+}
+
+export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
+	const help = argv.includes("--help") || argv.includes("-h")
+	const version = argv.includes("--version") || argv.includes("-v")
+	const command = argv.find((arg) => !arg.startsWith("-"))
+	return Object.freeze({ help, version, command })
+}
+
+export function runCli(argv: readonly string[]): number {
+	const args = parseCliArgs(argv)
+	if (args.version) {
+		console.log("0.0.0-development")
+		return 0
+	}
+	if (args.help || !args.command) {
+		console.log("Usage: ${binName} [command] [options]")
+		console.log("\\nCommands:\\n  run            Execute command\\n\\nOptions:\\n  -h, --help     Show help\\n  -v, --version  Show version")
+		return 0
+	}
+	console.log(\`Executed: \${args.command}\`)
+	return 0
+}
+
+if (import.meta.main) {
+	const exitCode = runCli(process.argv.slice(2))
+	process.exit(exitCode)
+}
+`
+		const test = `import { describe, expect, it } from "bun:test"
+import { parseCliArgs, runCli } from "./index"
+
+describe("CLI Parser", () => {
+	it("parses --help and -h flags", () => {
+		expect(parseCliArgs(["--help"]).help).toBe(true)
+		expect(parseCliArgs(["-h"]).help).toBe(true)
+	})
+
+	it("parses --version and -v flags", () => {
+		expect(parseCliArgs(["--version"]).version).toBe(true)
+		expect(parseCliArgs(["-v"]).version).toBe(true)
+	})
+
+	it("executes CLI with 0 exit code", () => {
+		expect(runCli(["--version"])).toBe(0)
+		expect(runCli(["--help"])).toBe(0)
+	})
+})
+`
+		return { src, test }
+	}
+
+	if (archetype === "service") {
+		const src = `/**
+ * Service handler for ${packageName}.
+ */
+
+export interface HealthStatus {
+	readonly status: "ok" | "degraded"
+	readonly service: string
+	readonly uptimeSeconds: number
+}
+
+export function getHealthStatus(serviceName: string, startTime: number): HealthStatus {
+	return Object.freeze({
+		status: "ok",
+		service: serviceName,
+		uptimeSeconds: Math.max(0, Math.floor((Date.now() - startTime) / 1000)),
+	})
+}
+
+export function handleRequest(urlPath: string, serviceName: string, startTime: number): Response {
+	if (urlPath === "/health" || urlPath === "/healthz") {
+		const body = JSON.stringify(getHealthStatus(serviceName, startTime))
+		return new Response(body, {
+			status: 200,
+			headers: { "content-type": "application/json" },
+		})
+	}
+	return new Response("Not Found", { status: 404 })
+}
+`
+		const test = `import { describe, expect, it } from "bun:test"
+import { type HealthStatus, getHealthStatus, handleRequest } from "./index"
+
+describe("Service Handler", () => {
+	it("returns operational health status", () => {
+		const health = getHealthStatus("test-service", Date.now())
+		expect(health.status).toBe("ok")
+		expect(health.service).toBe("test-service")
+	})
+
+	it("handles /health route with 200 JSON", async () => {
+		const res = handleRequest("/health", "test-service", Date.now())
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as HealthStatus
+		expect(body.service).toBe("test-service")
+	})
+
+	it("returns 404 for unknown route", () => {
+		const res = handleRequest("/unknown", "test-service", Date.now())
+		expect(res.status).toBe(404)
+	})
+})
+`
+		return { src, test }
+	}
+
+	// Minimal archetype
+	const src = `/**
+ * Minimal module for ${packageName}.
+ */
+
+export function greeting(name: string = "World"): string {
+	return \`Hello, \${name.trim()}!\`
+}
+`
+	const test = `import { describe, expect, it } from "bun:test"
+import { greeting } from "./index"
+
+describe("greeting", () => {
+	it("returns formatted greeting", () => {
+		expect(greeting("Trajectonomics")).toBe("Hello, Trajectonomics!")
+		expect(greeting()).toBe("Hello, World!")
+	})
+})
+`
+	return { src, test }
+}
+
 export async function runSetup(answers: SetupAnswers, rootDir: string): Promise<void> {
 	console.log("\n⚙️  Applying project customizations...")
 
@@ -155,7 +371,18 @@ export async function runSetup(answers: SetupAnswers, rootDir: string): Promise<
 	writeFileSync(pkgPath, JSON.stringify(pkg, null, "\t") + "\n")
 	console.log("   ✓ Updated package.json")
 
-	// 2. Update README.md
+	// 2. Adjust tsconfig.json types for runtime-enabled archetypes
+	if (answers.archetype === "cli" || answers.archetype === "service") {
+		const tsconfigPath = join(rootDir, "tsconfig.json")
+		if (existsSync(tsconfigPath)) {
+			const tsconfig = JSON.parse(readFileSync(tsconfigPath, "utf-8"))
+			tsconfig.compilerOptions.types = ["bun"]
+			writeFileSync(tsconfigPath, JSON.stringify(tsconfig, null, "\t") + "\n")
+			console.log("   ✓ Configured tsconfig.json types for runtime archetype")
+		}
+	}
+
+	// 3. Update README.md
 	const isCli = answers.archetype === "cli"
 	const isService = answers.archetype === "service"
 
@@ -167,7 +394,7 @@ export async function runSetup(answers: SetupAnswers, rootDir: string): Promise<
 
 	const usageSection = isCli
 		? `## CLI Usage\n\n\`\`\`bash\n${answers.packageName.split("/").pop()} --help\n\`\`\``
-		: `## Getting Started\n\n\`\`\`typescript\nimport { initialize } from "${answers.packageName}"\n\nconst result = initialize()\nconsole.log(result)\n\`\`\``
+		: `## Getting Started\n\n\`\`\`typescript\nimport { createEntity } from "${answers.packageName}"\n\nconst entity = createEntity({ id: "1", label: "Example" })\nconsole.log(entity)\n\`\`\``
 
 	const readmeContent = `# ${answers.packageName}
 
@@ -221,7 +448,7 @@ bun run lint
 	writeFileSync(join(rootDir, "README.md"), readmeContent)
 	console.log("   ✓ Generated README.md")
 
-	// 3. Update GLOSSARY.md
+	// 4. Update GLOSSARY.md
 	let glossaryContent = `# Domain Glossary: ${answers.packageName}
 
 Ubiquitous language for \`${answers.repoName}\`. Every term defined here is binding across code, tests, documentation, and PR titles. Synonyms in a diff are defects.
@@ -238,7 +465,7 @@ A rule or condition that must hold true across all state transitions in this sys
 	writeFileSync(join(rootDir, "GLOSSARY.md"), glossaryContent)
 	console.log("   ✓ Generated GLOSSARY.md")
 
-	// 4. Update AGENTS.md
+	// 5. Update AGENTS.md
 	const agentsPath = join(rootDir, "AGENTS.md")
 	if (existsSync(agentsPath)) {
 		let agentsContent = readFileSync(agentsPath, "utf-8")
@@ -254,7 +481,7 @@ A rule or condition that must hold true across all state transitions in this sys
 		console.log("   ✓ Updated AGENTS.md")
 	}
 
-	// 5. Update docs/adr/0001-...
+	// 6. Update docs/adr/0001-...
 	const adrPath = join(rootDir, "docs/adr/0001-core-architecture-decisions.md")
 	const oldAdr = join(rootDir, "docs/adr/0001-template-architecture-decisions.md")
 	if (existsSync(oldAdr)) {
@@ -286,69 +513,13 @@ It is built with Bun, TypeScript, and Biome under the Trajectonomics Lab archite
 	writeFileSync(adrPath, adrContent)
 	console.log("   ✓ Recorded ADR 0001")
 
-	// 6. Update src/index.ts and src/index.test.ts
-	const srcIndex = isCli
-		? `#!/usr/bin/env node
-/** CLI entrypoint for ${answers.packageName}. */
-export interface InitializationResult {
-	readonly name: string
-	readonly initialized: boolean
-	readonly timestamp: number
-}
-
-export function initialize(timestamp: number = 0): InitializationResult {
-	return Object.freeze({
-		name: "${answers.packageName}",
-		initialized: true,
-		timestamp,
-	})
-}
-
-if (import.meta.main) {
-	const res = initialize(Date.now())
-	console.log(\`\${res.name} initialized at \${res.timestamp}\`)
-}
-`
-		: `/** Metadata for ${answers.packageName}. */
-export interface InitializationResult {
-	readonly name: string
-	readonly initialized: boolean
-	readonly timestamp: number
-}
-
-/**
- * Initializes ${answers.packageName}.
- */
-export function initialize(timestamp: number = 0): InitializationResult {
-	return Object.freeze({
-		name: "${answers.packageName}",
-		initialized: true,
-		timestamp,
-	})
-}
-`
-	const srcTest = `import { describe, expect, it } from "bun:test"
-import { initialize } from "./index"
-
-describe("initialize", () => {
-	it("returns operational metadata for ${answers.packageName}", () => {
-		const res = initialize(12345)
-		expect(res.name).toBe("${answers.packageName}")
-		expect(res.initialized).toBe(true)
-		expect(res.timestamp).toBe(12345)
-	})
-
-	it("returns a frozen object", () => {
-		const res = initialize()
-		expect(Object.isFrozen(res)).toBe(true)
-	})
-})
-`
+	// 7. Update src/index.ts and src/index.test.ts with tailored archetype code
+	const { src: srcIndex, test: srcTest } = generateStarterCode(answers.archetype, answers.packageName)
 	writeFileSync(join(rootDir, "src/index.ts"), srcIndex)
 	writeFileSync(join(rootDir, "src/index.test.ts"), srcTest)
-	console.log("   ✓ Generated starter code and test in src/")
+	console.log("   ✓ Generated archetype-tailored starter code and tests in src/")
 
-	// 7. Adjust Release CI if publishing is disabled
+	// 8. Adjust Release CI if publishing is disabled
 	if (!answers.enablePublish) {
 		const relWorkflow = join(rootDir, ".github/workflows/release.yml")
 		if (existsSync(relWorkflow)) {
@@ -357,13 +528,16 @@ describe("initialize", () => {
 		}
 	}
 
-	// 8. Ensure dependencies are installed
+	// 9. Ensure dependencies are installed
 	if (!existsSync(join(rootDir, "node_modules"))) {
 		console.log("\n📦 Installing dependencies (`bun install`)...")
 		await $`bun install`.cwd(rootDir)
 	}
 
-	// 9. Run verification check
+	// 10. Format files with Biome before verification
+	await $`bun run format`.cwd(rootDir).quiet()
+
+	// 11. Run verification check
 	console.log("\n🧪 Running verification suite (`bun run check`)...")
 	const checkResult = await $`bun run check`.cwd(rootDir).nothrow()
 	if (checkResult.exitCode !== 0) {
@@ -376,7 +550,7 @@ describe("initialize", () => {
 	}
 	console.log("   ✓ Full verification suite passed with 0 errors!")
 
-	// 10. Self-destruction: Remove this setup skill
+	// 12. Self-destruction: Remove this setup skill
 	console.log("\n🧹 Cleaning up: Removing setup-the-repo bootstrap skill...")
 	const skillDir = join(rootDir, ".agents/skills/setup-the-repo")
 	const claudeSymlink = join(rootDir, ".claude/skills/setup-the-repo")
@@ -390,7 +564,7 @@ describe("initialize", () => {
 		console.log("   ✓ Removed .agents/skills/setup-the-repo directory")
 	}
 
-	// 11. Optionally create a git commit if inside a git repository
+	// 13. Optionally create a git commit if inside a git repository
 	try {
 		await $`git -C ${rootDir} add .`.quiet()
 		await $`git -C ${rootDir} commit -m "chore: bootstrap project from template and remove setup-the-repo skill"`.quiet()
@@ -399,7 +573,7 @@ describe("initialize", () => {
 		// Not in git or no changes to commit
 	}
 
-	// 12. Display Matt Pocock skills setup prompt
+	// 14. Display Matt Pocock skills setup prompt
 	console.log("\n" + "=".repeat(78))
 	console.log("🎉 REPOSITORY SETUP COMPLETE!")
 	console.log("=".repeat(78))
