@@ -20,6 +20,16 @@ interface SetupAnswers {
 	enablePublish: boolean
 }
 
+async function getRootDir(): Promise<string> {
+	try {
+		const out = await $`git rev-parse --show-toplevel`.quiet().text()
+		if (out.trim()) return out.trim()
+	} catch {
+		// Fallback to process.cwd()
+	}
+	return process.cwd()
+}
+
 async function getGitRemoteUrl(): Promise<string> {
 	try {
 		const out = await $`git remote get-url origin`.quiet().text()
@@ -70,8 +80,8 @@ async function collectAnswersInteractive(): Promise<SetupAnswers> {
 
 	console.log("\n4. Select Project Archetype:")
 	console.log("   [1] Pure Domain Library (deterministic, no I/O, strict types, tsdown dual ESM/CJS)")
-	console.log("   [2] CLI Application (executable bin, bun compile/run, CLI runner)")
-	console.log("   [3] Backend Service / Worker (API / daemon service)")
+	console.log("   [2] CLI Application (executable bin, tsdown build, CLI entrypoint)")
+	console.log("   [3] Backend Service / Worker (API daemon, private package)")
 	console.log("   [4] Minimal TypeScript Library")
 	const archetypeChoice = await promptUser(rl, "   Choose archetype (1-4)", "1")
 
@@ -90,7 +100,8 @@ async function collectAnswersInteractive(): Promise<SetupAnswers> {
 	const domainTerms: Array<{ term: string; definition: string }> = [{ term: term1, definition: def1 }]
 	if (term2 && def2) domainTerms.push({ term: term2, definition: def2 })
 
-	const pubChoice = await promptUser(rl, "\n6. Enable npm automated publishing in CI? (y/n)", archetype === "core" ? "y" : "n")
+	const defaultPublish = archetype === "core" ? "y" : "n"
+	const pubChoice = await promptUser(rl, `\n6. Enable npm automated publishing in CI? (y/n)`, defaultPublish)
 	const enablePublish = pubChoice.toLowerCase().startsWith("y")
 
 	rl.close()
@@ -105,7 +116,7 @@ async function collectAnswersInteractive(): Promise<SetupAnswers> {
 	}
 }
 
-export async function runSetup(answers: SetupAnswers, rootDir: string = process.cwd()): Promise<void> {
+export async function runSetup(answers: SetupAnswers, rootDir: string): Promise<void> {
 	console.log("\n⚙️  Applying project customizations...")
 
 	// 1. Update package.json
@@ -120,13 +131,20 @@ export async function runSetup(answers: SetupAnswers, rootDir: string = process.
 
 	if (answers.archetype === "cli") {
 		const binName = answers.packageName.split("/").pop() || "cli"
-		pkg.bin = { [binName]: "./src/index.ts" }
-		pkg.scripts["build"] = "tsdown"
-		pkg.scripts["dev"] = "bun run src/index.ts"
+		pkg.bin = { [binName]: "./dist/index.cjs" }
+		pkg.scripts.build = "tsdown"
+		pkg.scripts.dev = "bun run src/index.ts"
+	}
+
+	if (answers.archetype === "service") {
+		pkg.private = true
 	}
 
 	if (!answers.enablePublish) {
 		delete pkg.publishConfig
+		if (answers.archetype !== "core") {
+			pkg.private = true
+		}
 	}
 
 	// Remove setup script from package.json if present
@@ -138,6 +156,19 @@ export async function runSetup(answers: SetupAnswers, rootDir: string = process.
 	console.log("   ✓ Updated package.json")
 
 	// 2. Update README.md
+	const isCli = answers.archetype === "cli"
+	const isService = answers.archetype === "service"
+
+	const installSection = isService
+		? `## Installation & Deployment\n\n\`\`\`bash\nbun install\nbun run build\n\`\`\``
+		: isCli
+			? `## Installation\n\n\`\`\`bash\nbun add -g ${answers.packageName}\n# Or run directly via bunx:\nbunx ${answers.packageName}\n\`\`\``
+			: `## Installation\n\n\`\`\`bash\nbun add ${answers.packageName}\n\`\`\``
+
+	const usageSection = isCli
+		? `## CLI Usage\n\n\`\`\`bash\n${answers.packageName.split("/").pop()} --help\n\`\`\``
+		: `## Getting Started\n\n\`\`\`typescript\nimport { initialize } from "${answers.packageName}"\n\nconst result = initialize()\nconsole.log(result)\n\`\`\``
+
 	const readmeContent = `# ${answers.packageName}
 
 ${answers.description}
@@ -149,20 +180,9 @@ Part of the [Trajectonomics Lab](https://github.com/trajectonomics-lab) ecosyste
 
 ---
 
-## Installation
+${installSection}
 
-\`\`\`bash
-bun add ${answers.packageName}
-\`\`\`
-
-## Getting Started
-
-\`\`\`typescript
-import { initialize } from "${answers.packageName}"
-
-const result = initialize()
-console.log(result)
-\`\`\`
+${usageSection}
 
 ---
 
@@ -238,7 +258,7 @@ A rule or condition that must hold true across all state transitions in this sys
 	const adrPath = join(rootDir, "docs/adr/0001-core-architecture-decisions.md")
 	const oldAdr = join(rootDir, "docs/adr/0001-template-architecture-decisions.md")
 	if (existsSync(oldAdr)) {
-		rmSync(oldAdr)
+		rmSync(oldAdr, { force: true })
 	}
 	const adrContent = `# ADR 0001: Architecture Foundations for ${answers.packageName}
 
@@ -267,7 +287,29 @@ It is built with Bun, TypeScript, and Biome under the Trajectonomics Lab archite
 	console.log("   ✓ Recorded ADR 0001")
 
 	// 6. Update src/index.ts and src/index.test.ts
-	const srcIndex = `/** Metadata for ${answers.packageName}. */
+	const srcIndex = isCli
+		? `#!/usr/bin/env node
+/** CLI entrypoint for ${answers.packageName}. */
+export interface InitializationResult {
+	readonly name: string
+	readonly initialized: boolean
+	readonly timestamp: number
+}
+
+export function initialize(timestamp: number = 0): InitializationResult {
+	return Object.freeze({
+		name: "${answers.packageName}",
+		initialized: true,
+		timestamp,
+	})
+}
+
+if (import.meta.main) {
+	const res = initialize(Date.now())
+	console.log(\`\${res.name} initialized at \${res.timestamp}\`)
+}
+`
+		: `/** Metadata for ${answers.packageName}. */
 export interface InitializationResult {
 	readonly name: string
 	readonly initialized: boolean
@@ -310,22 +352,31 @@ describe("initialize", () => {
 	if (!answers.enablePublish) {
 		const relWorkflow = join(rootDir, ".github/workflows/release.yml")
 		if (existsSync(relWorkflow)) {
-			rmSync(relWorkflow)
+			rmSync(relWorkflow, { force: true })
 			console.log("   ✓ Removed release.yml (npm publishing disabled for this archetype)")
 		}
 	}
 
-	// 8. Run verification check
+	// 8. Ensure dependencies are installed
+	if (!existsSync(join(rootDir, "node_modules"))) {
+		console.log("\n📦 Installing dependencies (`bun install`)...")
+		await $`bun install`.cwd(rootDir)
+	}
+
+	// 9. Run verification check
 	console.log("\n🧪 Running verification suite (`bun run check`)...")
 	const checkResult = await $`bun run check`.cwd(rootDir).nothrow()
 	if (checkResult.exitCode !== 0) {
-		console.warn("⚠️  Verification check had warnings or issues:")
-		console.log(checkResult.stderr.toString())
-	} else {
-		console.log("   ✓ Full verification suite passed with 0 errors!")
+		console.error("\n❌ Verification check failed!")
+		console.error(checkResult.stdout.toString())
+		console.error(checkResult.stderr.toString())
+		console.error("\n⚠️  Self-destruction ABORTED so you can inspect and fix errors.")
+		console.error("   Once resolved, re-run `bun run setup` or `bun run check`.")
+		process.exit(1)
 	}
+	console.log("   ✓ Full verification suite passed with 0 errors!")
 
-	// 9. Self-destruction: Remove this setup skill
+	// 10. Self-destruction: Remove this setup skill
 	console.log("\n🧹 Cleaning up: Removing setup-the-repo bootstrap skill...")
 	const skillDir = join(rootDir, ".agents/skills/setup-the-repo")
 	const claudeSymlink = join(rootDir, ".claude/skills/setup-the-repo")
@@ -339,7 +390,16 @@ describe("initialize", () => {
 		console.log("   ✓ Removed .agents/skills/setup-the-repo directory")
 	}
 
-	// 10. Display Matt Pocock skills setup prompt
+	// 11. Optionally create a git commit if inside a git repository
+	try {
+		await $`git -C ${rootDir} add .`.quiet()
+		await $`git -C ${rootDir} commit -m "chore: bootstrap project from template and remove setup-the-repo skill"`.quiet()
+		console.log("   ✓ Created bootstrap commit in git")
+	} catch {
+		// Not in git or no changes to commit
+	}
+
+	// 12. Display Matt Pocock skills setup prompt
 	console.log("\n" + "=".repeat(78))
 	console.log("🎉 REPOSITORY SETUP COMPLETE!")
 	console.log("=".repeat(78))
@@ -367,6 +427,9 @@ or /pick-the-issue!
 }
 
 async function main(): Promise<void> {
+	const rootDir = await getRootDir()
+	const remoteUrl = await getGitRemoteUrl()
+
 	const { values } = parseArgs({
 		args: Bun.argv.slice(2),
 		options: {
@@ -375,13 +438,24 @@ async function main(): Promise<void> {
 			description: { type: "string" },
 			archetype: { type: "string" },
 			publish: { type: "string" },
+			force: { type: "boolean", default: false },
 			"non-interactive": { type: "boolean", default: false },
 		},
 		strict: false,
 	})
 
+	// Guard against running accidentally inside the template repository itself
+	if (remoteUrl.includes("trajectonomics-lab/technical-template") && !values.force) {
+		console.error("🛑 Refusing to run bootstrap setup on the template source repository itself!")
+		console.error("   To test setup, clone or instantiate a new repository from this template.")
+		console.error("   (Or pass --force if you specifically intend to overwrite the template repository.)")
+		process.exit(1)
+	}
+
+	const isInteractive = !values["non-interactive"] && process.stdin.isTTY
+
 	let answers: SetupAnswers
-	if (values["non-interactive"] || values.name) {
+	if (!isInteractive || values.name) {
 		const repoName = (values.name as string) || (await inferDefaultRepoName())
 		const packageName = (values.pkg as string) || `@trajectonomics/${repoName.split("/").pop()}`
 		const description = (values.description as string) || "TypeScript module for Trajectonomics Lab"
@@ -389,7 +463,9 @@ async function main(): Promise<void> {
 		const archetype = (["core", "cli", "service", "minimal"].includes(rawArch)
 			? rawArch
 			: "core") as SetupAnswers["archetype"]
-		const enablePublish = values.publish === "true" || values.publish === "y"
+		const enablePublish = values.publish
+			? values.publish === "true" || values.publish === "y"
+			: archetype === "core"
 
 		answers = {
 			repoName,
@@ -403,7 +479,7 @@ async function main(): Promise<void> {
 		answers = await collectAnswersInteractive()
 	}
 
-	await runSetup(answers)
+	await runSetup(answers, rootDir)
 }
 
 if (import.meta.main) {
