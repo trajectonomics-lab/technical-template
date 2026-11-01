@@ -38,6 +38,7 @@
 		"tag": "latest"
 	},
 	"scripts": {
+		"setup": "bun .agents/skills/setup-the-repo/scripts/setup.ts",
 		"build": "tsdown",
 		"test": "bun test",
 		"typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",

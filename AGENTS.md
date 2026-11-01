@@ -15,6 +15,7 @@ Instructions for AI coding agents working in `trajectonomics-lab` repositories i
 
 ### Skills included in this template
 
+- **Bootstrap Skill (`setup-the-repo`)**: Single-use interactive setup wizard. When initializing a new repo from this template, run `/setup-the-repo` (or `bun run setup`). It customizes the repository, verifies the build, removes itself, and instructs you to run `/setup-matt-pocock-skills`.
 - **Matt Pocock Skills (`mattpocock/skills`)**: Complete engineering workflow including `/ask-matt`, `/tdd`, `/implement`, `/code-review`, `/wayfinder`, `/diagnosing-bugs`, `/codebase-design`, `/grill-with-docs`, etc.
 - **Trajectonomics Internal Skills (`trajectonomics-lab/internal-skills`)**: Organization-specific workflow including `/pick-the-issue` to discover unblocked GitHub issues not currently handled by active T3 Code sessions and route them into the `ask-matt` framework.
 
@@ -50,10 +51,6 @@ Skills come from [`mattpocock/skills`](https://github.com/mattpocock/skills) and
 ## Checklist When Instantiating a New Repo
 
 When creating a new repository from this template:
-1. Update `package.json`:
-   - `name`: `@trajectonomics/<new-package-name>`
-   - `description`: A clear, concise summary of the new package.
-   - `repository.url`: `git+https://github.com/trajectonomics-lab/<new-package-name>.git`
-2. Update `README.md` and `GLOSSARY.md` to define the domain terms and core invariants.
-3. Create your first domain ADR under `docs/adr/0002-...md`.
-4. Run `bun run check` to verify linting, types, build, and tests.
+1. Run `/setup-the-repo` (or `bun run setup`) to interactively configure your package coordinates, description, archetype, domain glossary, and architecture records.
+2. Next, run `/setup-matt-pocock-skills` to wire up your issue tracker and triage labels.
+3. Run `bun run check` to verify linting, types, build, and tests.
