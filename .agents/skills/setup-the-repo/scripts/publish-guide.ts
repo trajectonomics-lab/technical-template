@@ -37,12 +37,15 @@ Never run \`npm publish\` locally (see AGENTS.md).
    git checkout package.json
    \`\`\`
    Confirm with \`npm view ${packageName} dist-tags\`.
-5. **Switch to trusted publishing**: on npmjs.com open the package, then Settings, then Trusted
-   Publisher, and choose GitHub Actions with repository \`${repoName}\` and workflow \`release.yml\`.
-   Then set the package's publishing access to require 2FA and disallow tokens.
-6. **Check release.yml**: it must publish with a token *or* OIDC. A copy that still has the "Skipping
-   publish step" guard exits green without publishing when \`NPM_TOKEN\` is missing, which is exactly
-   the situation after step 5.
+5. **Add the Trusted Publisher**: on npmjs.com open the package, then Settings, then Trusted Publisher,
+   and choose GitHub Actions with repository \`${repoName}\`, workflow \`release.yml\`, **allow
+   publish directly** (stage-only would queue every CI release for manual approval), and no
+   environment name. The configuration must be validated by one successful CI publish within two
+   days. Then set the package's publishing access to require 2FA and disallow tokens.
+6. **Check release.yml**: it should be the thin caller of the shared workflow
+   (\`uses: trajectonomics/cicd/.github/workflows/publish.yml@v1\`). npm validates the *calling*
+   file, so keep it named \`release.yml\` and give it \`id-token: write\`. A copy that still has the
+   "Skipping publish step" guard exits green without publishing when \`NPM_TOKEN\` is missing.
 7. **Verify**: merge a small \`fix:\` PR and confirm the new alpha appears with provenance.
 `
 }
