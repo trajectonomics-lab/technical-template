@@ -1,6 +1,6 @@
 ---
 name: setup-the-repo
-description: "Interactive questionnaire and automated bootstrapper to customize a new repository created from trajectonomics/technical-template. Sets up package metadata, README, CI workflows, GLOSSARY, AGENTS rules, and starter code, self-destructs the setup skill, and instructs setting up Matt Pocock's skills."
+description: "Interactive questionnaire and automated bootstrapper to customize a new repository created from trajectonomics/technical-template. Sets up package metadata, README, CI workflows, GLOSSARY, AGENTS rules, and starter code, self-destructs the setup skill, and instructs setting up Matt Pocock's skills. For packages that publish to npm, also writes a first-publish and trusted-publishing checklist."
 disable-model-invocation: true
 ---
 
@@ -64,6 +64,8 @@ Ask the user the following questions concisely (with smart defaults pre-filled):
 
 4. **CI & Release Workflow**:
    - Enable automated npm releases on main push? (Default: `yes` for Pure Domain Library, `no` for CLI/Service).
+   - If yes, this repo publishes a package: the **Publish Setup** step (below) applies. Ask which npm
+     account will do the first publish and whether the package name is already taken.
 
 #### 3. Present Plan & Confirm
 Show the user a concise summary of what will be configured:
@@ -79,6 +81,7 @@ Show the user a concise summary of what will be configured:
 - Record initial Architecture Decision Record under `docs/adr/0001-core-architecture-decisions.md`.
 - Scaffold typed starter functions and passing unit tests in `src/index.ts` and `src/index.test.ts`.
 - Adjust `.github/workflows/` (remove `release.yml` if npm publishing is disabled).
+- If publishing is enabled, write `docs/publishing.md` (the first-publish and trusted-publishing checklist) and link it from `README.md`. The skill deletes itself, so the repo must keep this guide.
 - Remove `"setup"` script entry from `package.json`.
 
 #### 5. Verify Build and Quality Gates
@@ -99,7 +102,17 @@ Because this is a bootstrap-only skill, remove it so the repository remains clea
   git commit -m "chore: bootstrap project from template and remove setup-the-repo skill"
   ```
 
-#### 7. Prompt to Setup Matt Pocock's Skills
+#### 7. Publish Setup (only when the repo publishes a package)
+Skip this step when npm publishing is disabled. Otherwise walk the user through `docs/publishing.md`:
+1. **npm sign-in**: check `npm whoami`. If signed out, run `BROWSER=none npm login --auth-type=web` in the background and give the user the printed URL immediately; it expires in about five minutes. Never ask for a password, token, or one-time code in chat.
+2. **Scope and name**: confirm the user belongs to the package's npm org (`npm org ls <org> <user>`) and that `npm view <package>` returns 404 (name is free).
+3. **First publish needs a token**: npm cannot attach a trusted publisher to a package that does not exist. The user creates a granular token and stores it with `gh secret set NPM_TOKEN`; the agent never sees the value.
+4. **Publish through CI**: merge the bootstrap PR or run the Release workflow on `main`. Never run `npm publish` locally (AGENTS.md rule 6). Confirm with `npm view <package> dist-tags`; a `release.yml` without the OIDC fallback skips silently when the token is missing.
+5. **Trusted publishing**: on npmjs.com, package Settings, Trusted Publisher, GitHub Actions, repository `<org>/<repo>`, workflow `release.yml`. Then delete `NPM_TOKEN` and disallow tokens for publishing.
+
+Only the user can do steps 1, 3 and 5 (credentials and npmjs.com settings). The agent runs the read-only checks and verifies the result.
+
+#### 8. Prompt to Setup Matt Pocock's Skills
 Output the following prominent call-to-action to the user:
 
 ```markdown
@@ -117,6 +130,13 @@ The single-use bootstrap skill `setup-the-repo` has been removed.
    1. Issue tracker (GitHub Issues with `gh` CLI).
    2. Canonical triage labels (`needs-triage`, `ready-for-agent`, `needs-info`, etc.).
    3. Domain document consumption rules (`GLOSSARY.md` and `docs/adr/`).
+
+If the repo publishes a package, also print:
+
+```markdown
+📦 PUBLISH SETUP: the package is not on npm until you finish docs/publishing.md
+   (npm sign-in, NPM_TOKEN secret, first publish, then trusted publishing).
+```
 
 After running `/setup-matt-pocock-skills`, you can pick or create your first ticket
 using `/pick-the-issue` or `/to-tickets`!
