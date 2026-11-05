@@ -613,8 +613,8 @@ or /pick-the-issue!
 	if (answers.enablePublish) {
 		console.log("📦 PUBLISH SETUP: the package is not on npm until you finish docs/publishing.md")
 		for (const line of await npmStatus(answers.packageName)) console.log(`   - ${line}`)
-		console.log("   - Next: sign in to npm, add the NPM_TOKEN secret, publish once,")
-		console.log("     then switch to trusted publishing and delete the token.\n")
+		console.log("   - Next: sign in to npm, publish the first alpha locally, then switch to")
+		console.log("     trusted publishing (docs/publishing.md has the exact commands).\n")
 	}
 }
 

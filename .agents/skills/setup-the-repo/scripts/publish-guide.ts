@@ -27,18 +27,23 @@ Never run \`npm publish\` locally (see AGENTS.md).
    Verify with \`npm whoami\`.
 2. ${scopeStep}
 3. **Check the name is free**: \`npm view ${packageName}\` should answer 404.
-4. **First publish needs a token.** npm cannot attach a trusted publisher to a package that does not
-   exist yet. Create a granular access token that can publish this package, then store it:
-   \`gh secret set NPM_TOKEN --repo ${repoName}\`
-5. **Publish**: merge the bootstrap PR (publishes an alpha), or run the Release workflow on \`main\`
-   (use \`bump = major\` to cut \`1.0.0\`). A \`release.yml\` that still has the "Skipping publish
-   step" guard exits green without publishing when \`NPM_TOKEN\` is missing, so check the run really
-   published: \`npm view ${packageName} dist-tags\`.
-6. **Switch to trusted publishing**: on npmjs.com open the package, then Settings, then Trusted
+4. **First publish, locally.** npm cannot attach a trusted publisher to a package that does not exist
+   yet, so the maintainer publishes the first version by hand. Bump the version in the working tree
+   only (never commit it), publish under the \`alpha\` tag without provenance (it needs CI), approve the
+   2FA URL npm prints, then discard the bump:
+   \`\`\`bash
+   npm version 0.1.0-alpha.0 --no-git-tag-version
+   npm publish --access public --tag alpha --provenance=false
+   git checkout package.json
+   \`\`\`
+   Confirm with \`npm view ${packageName} dist-tags\`.
+5. **Switch to trusted publishing**: on npmjs.com open the package, then Settings, then Trusted
    Publisher, and choose GitHub Actions with repository \`${repoName}\` and workflow \`release.yml\`.
-7. **Remove the token**: \`gh secret delete NPM_TOKEN --repo ${repoName}\`, and set the package's
-   publishing access to require 2FA and disallow tokens.
-8. **Verify**: merge a small \`fix:\` PR and confirm the new alpha appears with provenance.
+   Then set the package's publishing access to require 2FA and disallow tokens.
+6. **Check release.yml**: it must publish with a token *or* OIDC. A copy that still has the "Skipping
+   publish step" guard exits green without publishing when \`NPM_TOKEN\` is missing, which is exactly
+   the situation after step 5.
+7. **Verify**: merge a small \`fix:\` PR and confirm the new alpha appears with provenance.
 `
 }
 

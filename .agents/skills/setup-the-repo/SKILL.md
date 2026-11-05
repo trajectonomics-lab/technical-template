@@ -106,11 +106,11 @@ Because this is a bootstrap-only skill, remove it so the repository remains clea
 Skip this step when npm publishing is disabled. Otherwise walk the user through `docs/publishing.md`:
 1. **npm sign-in**: check `npm whoami`. If signed out, run `BROWSER=none npm login --auth-type=web` in the background and give the user the printed URL immediately; it expires in about five minutes. Never ask for a password, token, or one-time code in chat.
 2. **Scope and name**: confirm the user belongs to the package's npm org (`npm org ls <org> <user>`) and that `npm view <package>` returns 404 (name is free).
-3. **First publish needs a token**: npm cannot attach a trusted publisher to a package that does not exist. The user creates a granular token and stores it with `gh secret set NPM_TOKEN`; the agent never sees the value.
-4. **Publish through CI**: merge the bootstrap PR or run the Release workflow on `main`. Never run `npm publish` locally (AGENTS.md rule 6). Confirm with `npm view <package> dist-tags`; a `release.yml` without the OIDC fallback skips silently when the token is missing.
-5. **Trusted publishing**: on npmjs.com, package Settings, Trusted Publisher, GitHub Actions, repository `<org>/<repo>`, workflow `release.yml`. Then delete `NPM_TOKEN` and disallow tokens for publishing.
+3. **First publish, locally**: npm cannot attach a trusted publisher to a package that does not exist, so the maintainer publishes the first alpha by hand (the one exception to "never publish locally"). Bump the version in the working tree only, `npm publish --access public --tag alpha --provenance=false`, have the user approve the 2FA URL, then `git checkout package.json`. No `NPM_TOKEN` is needed.
+4. **Trusted publishing**: on npmjs.com, package Settings, Trusted Publisher, GitHub Actions, repository `<org>/<repo>`, workflow `release.yml`. Then disallow tokens for publishing.
+5. **Check `release.yml`**: it must publish with a token or OIDC. A copy with the "Skipping publish step" guard exits green without publishing once no `NPM_TOKEN` exists. Confirm with `npm view <package> dist-tags` after the first merge.
 
-Only the user can do steps 1, 3 and 5 (credentials and npmjs.com settings). The agent runs the read-only checks and verifies the result.
+Only the user can do steps 1, 3 and 4 (credentials, the 2FA approval, and npmjs.com settings). The agent runs the read-only checks and verifies the result.
 
 #### 8. Prompt to Setup Matt Pocock's Skills
 Output the following prominent call-to-action to the user:
@@ -135,7 +135,7 @@ If the repo publishes a package, also print:
 
 ```markdown
 📦 PUBLISH SETUP: the package is not on npm until you finish docs/publishing.md
-   (npm sign-in, NPM_TOKEN secret, first publish, then trusted publishing).
+   (npm sign-in, first local publish, then trusted publishing).
 ```
 
 After running `/setup-matt-pocock-skills`, you can pick or create your first ticket
