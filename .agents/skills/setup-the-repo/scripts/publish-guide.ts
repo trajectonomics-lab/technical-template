@@ -17,8 +17,9 @@ export function publishChecklist(packageName: string, repoName: string): string 
 		: "This package is unscoped; no npm org is needed."
 	return `# Publishing ${packageName}
 
-Merges to \`main\` publish alphas; a stable release is the manual **Release** workflow.
-Never run \`npm publish\` locally (see AGENTS.md).
+Merges to \`main\` publish alphas. A stable release is the manual **Release** workflow (Actions tab,
+Run workflow, pick a bump): it publishes, then creates the \`vX.Y.Z\` tag and the GitHub release.
+Never run \`npm publish\` locally after the first publish (see AGENTS.md).
 
 ## One-time setup
 
@@ -44,9 +45,10 @@ Never run \`npm publish\` locally (see AGENTS.md).
    days. Then set the package's publishing access to require 2FA and disallow tokens.
 6. **Check release.yml**: it should be the thin caller of the shared workflow
    (\`uses: trajectonomics/cicd/.github/workflows/publish.yml@v1\`). npm validates the *calling*
-   file, so keep it named \`release.yml\` and give it \`id-token: write\`. A copy that still has the
+   file, so keep it named \`release.yml\` and give it \`id-token: write\` and a \`workflow_dispatch\` \`bump\` input. A copy that still has the
    "Skipping publish step" guard exits green without publishing when \`NPM_TOKEN\` is missing.
 7. **Verify**: merge a small \`fix:\` PR and confirm the new alpha appears with provenance.
+   Cut the first stable with the Release workflow (\`bump = major\` gives \`1.0.0\`).
 `
 }
 
