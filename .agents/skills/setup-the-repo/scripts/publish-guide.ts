@@ -49,6 +49,16 @@ Never run \`npm publish\` locally after the first publish (see AGENTS.md).
    "Skipping publish step" guard exits green without publishing when \`NPM_TOKEN\` is missing.
 7. **Verify**: merge a small \`fix:\` PR and confirm the new alpha appears with provenance.
    Cut the first stable with the Release workflow (\`bump = major\` gives \`1.0.0\`).
+
+## What looks like a failure but is not
+
+- **\`npm view\` says 404 right after a green publish.** The registry takes one to three minutes to
+  show a new version, and \`dist-tags\` updates last. Trust the \`+ ${packageName}@X.Y.Z\` line in the
+  CI log, then look again.
+- **A \`0.0.0-stage\` version appears** after the first release: npm's staged publishing placeholder,
+  not a failed release.
+- **A stable run fails after publishing** (for example a GitHub 500 creating the release): re-run
+  the failed job. The shared workflow skips a version already on npm and a release that exists.
 `
 }
 
