@@ -10,6 +10,7 @@ import * as readline from "node:readline/promises"
 import { stdin as input, stdout as output } from "node:process"
 import { parseArgs } from "node:util"
 import { $ } from "bun"
+import { npmStatus, publishChecklist } from "./publish-guide"
 
 interface SetupAnswers {
 	repoName: string
@@ -438,7 +439,7 @@ bun run lint
 - [AGENTS.md](./AGENTS.md): Guidelines and rules for autonomous AI coding agents.
 - [CODING_STANDARDS.md](./CODING_STANDARDS.md): Architecture, purity, and review invariants.
 - [docs/adr/](./docs/adr/): Architecture Decision Records.
-
+${answers.enablePublish ? "- [docs/publishing.md](./docs/publishing.md): First npm publish and trusted publishing checklist.\n" : ""}
 ---
 
 ## License
@@ -528,6 +529,15 @@ It is built with Bun, TypeScript, and Biome under the Trajectonomics architectur
 		}
 	}
 
+	// 8b. Persist the publish checklist (this skill deletes itself, the repo keeps the guide)
+	if (answers.enablePublish) {
+		writeFileSync(
+			join(rootDir, "docs/publishing.md"),
+			publishChecklist(answers.packageName, answers.repoName),
+		)
+		console.log("   ✓ Wrote docs/publishing.md (first publish + trusted publishing checklist)")
+	}
+
 	// 9. Ensure dependencies are installed
 	if (!existsSync(join(rootDir, "node_modules"))) {
 		console.log("\n📦 Installing dependencies (`bun install`)...")
@@ -598,6 +608,14 @@ After that, you're ready to pick or create your first issue with /to-tickets
 or /pick-the-issue!
 `)
 	console.log("=".repeat(78) + "\n")
+
+	// 15. Publish setup status (read-only) when this repo publishes a package
+	if (answers.enablePublish) {
+		console.log("📦 PUBLISH SETUP: the package is not on npm until you finish docs/publishing.md")
+		for (const line of await npmStatus(answers.packageName)) console.log(`   - ${line}`)
+		console.log("   - Next: sign in to npm, publish the first alpha locally, then switch to")
+		console.log("     trusted publishing (docs/publishing.md has the exact commands).\n")
+	}
 }
 
 async function main(): Promise<void> {
